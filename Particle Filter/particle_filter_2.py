@@ -8,8 +8,8 @@ from scipy.stats import norm
 import cv2
 
 PARTICLE_COUNT = 1000
-# seperated distance of the references in cm
-REF_DISTANCE = 50
+# seperated distance of the references in inch
+REF_DISTANCE = 24
 # room width and length
 BREADTH = 300
 DEPTH = 300
@@ -33,7 +33,9 @@ def initialize():
     b = np.random.randint(1, BREADTH, PARTICLE_COUNT)
     d = np.random.randint(1, DEPTH, PARTICLE_COUNT)
     particles = np.array([[b[i], d[i]] for i in range(PARTICLE_COUNT)])
+    plt.clf()
     plt.figure('initialize')
+    plt.clf()
     plt.plot([left_obj[0]], [left_obj[1]], 'ro')
     plt.plot([right_obj[0]], [right_obj[1]], 'ro')
     plt.plot([x[0] for x in particles], [x[1] for x in particles], 'bo')
@@ -58,19 +60,15 @@ def calculate_weight(mean1, sd1, mean2, sd2):
 
     def cal_dist(x, obj_pos):
         temp = np.array(x) - np.array(obj_pos)
-        # print('from {}  to {} is {}'.format(x, obj_pos, int(np.sqrt(np.dot(temp, temp)))))
         return int(np.sqrt(np.dot(temp, temp)))
 
     obj1_position = np.array([left_obj[0], left_obj[1]])
     obj2_position = np.array([right_obj[0], right_obj[1]])
     distance1_list = [cal_dist(x, obj1_position) for x in particles]
     distance2_list = [cal_dist(x, obj2_position) for x in particles]
-    wts = [norm(mean1, sd1).pdf(distance1_list[x]) * 1000 * norm(mean2, sd2).pdf(distance2_list[x])
-           for x in range(len(distance1_list))]
-    
-    # wts_size = np.sqrt(np.dot(wts, wts))
-    # wts = np.array(list(map(lambda x: x / wts_size, wts)))
-    # print(*wts, sep='\n')
+    wts = np.array([norm(mean1, sd1).pdf(distance1_list[x]) * 1000 * norm(mean2, sd2).pdf(distance2_list[x])
+                    for x in range(len(distance1_list))])
+    wts = wts / sum(wts)
 # --
 
 
@@ -91,44 +89,32 @@ def resampling():
     -> list of possible position
     """
     global particles
-    temp = np.array([np.array([particles[i]] * int(wts[i] * PARTICLE_COUNT * 1000))
-                     for i in range(PARTICLE_COUNT)])
-    temp = np.array(list(filter(lambda x: len(x) > 1, temp)))
-    # print(*temp, sep='\n')
-    # print(len(temp))
-    # temp = np.reshape(np.array(temp), (-1, 2))
-    ls = [temp[0]]
-    for i in range(1, len(temp)):
-        ls.append(temp[i])
-    random_len = len(ls)
-    ls = np.array(ls)
 
     def fake_error():
-        return [np.random.randint(-10, 11), np.random.randint(-10, 11)]
-    particles = np.array([ls[np.random.randint(1, random_len)]
-                          for _ in range(PARTICLE_COUNT)])
-    particles = np.array(list(map(lambda x: [
-                         x[0] + np.random.randint(-10, 10), x[1] + np.random.randint(-10, 10)], particles)))
-    # particles = [np.array(temp[np.random.randint(1, random_len)]) + np.array(fake_error())
-    #  for _ in range(PARTICLE_COUNT)]
+        return [np.random.randint(-10, 11), np.rand / om.randint(-10, 11)]
+    index = np.random.choice(PARTICLE_COUNT, PARTICLE_COUNT, p=wts)
+    print(wts)
+    particles = np.array([[particles[i][0] + np.random.randint(-20, 20),
+                           particles[i][1] + np.random.randint(-20, 20)]
+                          for i in index])
 # --
 
 
 def plot():
     plt.figure('after resampling')
-    # xs = np.array(list(map(lambda x: x[0], particles)))
-    # ys = np.array(list(map(lambda x: x[1], particles)))
-    # plt.plot(xs, ys, 'bo')
+    plt.plot([left_obj[0]], [left_obj[1]], 'ro')
+    plt.plot([right_obj[0]], [right_obj[1]], 'ro')
     plt.plot([x[0] for x in particles], [x[1] for x in particles], 'bo')
-    plt.axis([0, 300, 0, 300])
+    plt.axis([-10, 310, -10, 310])
+    plt.draw()
     plt.show()
+    print('endddd')
+    return
 
 
 def particle_fiter(frame):
     initialize()
     # take pictures here and calculate distance and get mean,sd
-    # mean, sd = None, None
-
     pic_l = cv2.inRange(frame, lowerb_left, upperb_left)
     pic_r = cv2.inRange(frame, lowerb_right, upperb_right)
     pix_count_l = cv2.countNonZero(pic_l)
@@ -137,14 +123,12 @@ def particle_fiter(frame):
     coef = np.array([1.02263387e+04,  4.26910153e+00])
     mean1 = 1 / np.sqrt(pix_count_l) * coef[0] + coef[1]
     mean2 = 1 / np.sqrt(pix_count_r) * coef[0] + coef[1]
-    print(mean1, mean2) 
+    print(mean1, mean2)
     sd1 = 0.03 * mean1
     sd2 = 0.03 * mean2
     calculate_weight(mean1, sd1, mean2, sd2)
     resampling()
-    # print(*particles, sep='\n')
     plot()
-    # plt.show()
 
 
 def callback(event, x, y, flag, param):
@@ -183,12 +167,17 @@ obj1_position = np.array([left_obj[0], left_obj[1]])
 obj2_position = np.array([right_obj[0], right_obj[1]])
 print(obj1_position)
 print(obj2_position)
+plt.ion()
 
 while True:
     # Capture frame-by-frame
     ret, frame = cap.read()
-    cv2.putText(frame, 'is left : {}'.format(str(is_left)), (10, 500), 0, 4,
-                (255, 255, 255), 2, cv2.LINE_AA)
+    if is_left:
+        cv2.putText(frame, 'click to set left', (10, 500), 0, 4,
+                    (255, 255, 255), 2, cv2.LINE_AA)
+    else:
+        cv2.putText(frame, 'click to set right', (10, 500), 0, 4,
+                    (255, 255, 255), 2, cv2.LINE_AA)
     cv2.imshow('window', frame)
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV_FULL)
     cmd = cv2.waitKey(20)
