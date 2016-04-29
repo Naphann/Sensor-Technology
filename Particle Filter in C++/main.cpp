@@ -13,10 +13,16 @@
 #include <queue>
 #include <fstream>
 #include <cstring>
-#define AREA_H 800 
-#define AREA_W 1600
+#define AREA_H 400 
+#define AREA_W 800
 #define NB 8
 #define PI 3.14159265359
+#define PAR_COUNT 1000
+#define OBJ_X 100
+#define OBJ_R_Y 170
+#define OBJ_L_Y 230 
+#define POINT_OBJ_L Point2i(OBJ_X, OBJ_L_Y)
+#define POINT_OBJ_R Point2i(OBJ_X, OBJ_R_Y)
 
 using namespace std;
 using namespace cv;
@@ -32,49 +38,78 @@ char color_name[12] = "LightBlue";
 int lowerb = 135;
 int upperb = 145;
 const double focal_len = 594.72;
-const double obj_real = 32; //mm
+const double obj_real = 52 * 17;//cm
 double obj_area_pix = 1; // pixel  (1 is the start value , not real value)
+double sd = 3;
 
+int lowerb_l = 0;
+int upperb_l = 0;
+int lowerb_r = 0;
+int upperb_r = 0;
 
 
 Scalar color_scalar;
+void select_new_color(bool isL) {
+	int theshold = 10;
+	Mat hsv;
+	cvtColor(img, hsv, CV_BGR2HSV_FULL);
+	blur(hsv, hsv, Size(7, 7));
+	Vec3b pt = hsv.at<Vec3b>(mousey, mousex);
+	if (isL) {
+		lowerb_l = pt[0] - theshold;
+		upperb_l = pt[0] + theshold;
+	}
+	else {
+		lowerb_r = pt[0] - theshold;
+		upperb_r = pt[0] + theshold;
+	}
+
+}
 void set_color(int i) {
 	if(i ==0)
 	{	
 		strcpy_s( color_name, "LightBlue" );
-		lowerb = 125;
-		upperb = 135;
+		lowerb = lowerb_l;
+		upperb = upperb_l;
 	}
 	else if( i ==1 )
 	{
-		strcpy_s( color_name, "Pink");
-		lowerb = 210;
-		upperb = 225;
+		strcpy_s( color_name, "Green");
+		lowerb = lowerb_r;
+		upperb = upperb_r;
 	}
 }
-void MyFilledCircle(Mat& img, cv::Point center)
+void MyFilledCircle(Mat& img, cv::Point center,Scalar color = Scalar(0,255,255) ,int thickness = 8)
 {
-	int thickness = 8;
+	
 	int lineType = 8;
 
 	circle(img,
 		center,
 		10 / 32.0,
-		Scalar(0, 255, 255),
+		color,
 		thickness,
 		lineType);
 }
 
 void CallBackFunc(int event, int x, int y, int flags, void* param) {
-	Mat* rgb = (Mat*)param;
-	Mat asd;
-	cvtColor((*rgb), asd, CV_BGR2HSV);
+	//Mat* rgb = (Mat*)param;
+	//Mat asd;
+	//cvtColor((*rgb), asd, CV_BGR2HSV);
 	if (event == CV_EVENT_MOUSEMOVE) {
 		mousex = x;
 		mousey = y;
 	}
+	if (event == EVENT_LBUTTONDOWN)
+		select_new_color(true);
+	if (event == EVENT_RBUTTONDOWN)
+		select_new_color(false);
 }
 
+float distOfTwoPoints(Point2i a, Point2i b) {
+	
+	return sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
+}
 bool is_Wanted_corlor(Vec3b v) {
 	int h, s;
 	h = v[0];
@@ -222,17 +257,28 @@ void color_segmentation(int mode,Mat &segment,Mat &img) {
 }
 void make_image_of_state(vector<pair<Point2i, double> > &particle , Mat& img){
 	for (int i = 0; i < particle.size(); i++)
-		MyFilledCircle(img, particle[i].first);
+		if(particle[i].second != 0.0)
+			MyFilledCircle(img, particle[i].first, Scalar(0, 0, 255));
 }
 void rand_particle(int n, vector<pair<Point2i, double> > &particle) {
 	for (int i = 0; i < n; i++)
 		particle.push_back(make_pair(Point2i(rand()%AREA_W, rand()%AREA_H), 1.0 / n));
 }
-Mat cal_position(double depth0 ,double depth1) {
+Mat cal_position(double depthL ,double depthR) {
 	Mat res(AREA_H, AREA_W, CV_8UC3);
 	vector<pair<Point2i, double> > particle;
-	rand_particle(1000, particle);
+	rand_particle(PAR_COUNT, particle);
+	
+
+	for (int i = 0; i < PAR_COUNT; i++) {
+		if (abs(distOfTwoPoints(particle[i].first, POINT_OBJ_L) - depthL) > 20)
+			particle[i].second = 0.0;
+		if (abs(distOfTwoPoints(particle[i].first, POINT_OBJ_R) - depthR) > 20)
+			particle[i].second = 0.0;
+	}
 	make_image_of_state(particle, res);
+	MyFilledCircle(res, POINT_OBJ_L,  Scalar(255, 0, 0),20);
+	MyFilledCircle(res, POINT_OBJ_R,  Scalar(0, 255, 0),20);
 	imshow("state",res);
 	return res;
 }
@@ -261,19 +307,19 @@ int main() {
 
 		segment0 = temp_img.clone();
 		color_segmentation(0, segment0, temp_img);
-		double depth0 = cal_depth();
+		double depthL = cal_depth();
 
 		segment1 = temp_img.clone();
 		color_segmentation(1, segment1, temp_img);
-		double depth1 = cal_depth();
+		double depthR = cal_depth();
 		
 		imshow("ImageDisplay", img);
-		imshow("segmented0", segment0);
-		imshow("segmented1", segment1);
+		//imshow("segmented0", segment0);
+		//imshow("segmented1", segment1);
 
-		printf(" Dept: %f  %f", depth0,depth1);
+		printf(" Dept: %f  %f", depthL,depthR);
 		
-		cal_position(depth0,depth1);
+		cal_position(depthL,depthR);
 		
 		int cmd = waitKey(40);
 		if (cmd == 32) {
